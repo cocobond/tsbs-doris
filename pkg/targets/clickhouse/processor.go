@@ -79,8 +79,7 @@ type syncCSI struct {
 }
 
 // globalSyncCSI is used when data is not hashed by some function to a worker consistently so
-//
-//	all workers need to know about the same map from hostname -> tags_id
+// therefore all workers need to know about the same map from hostname -> tags_id
 var globalSyncCSI = newSyncCSI()
 
 // Process part of incoming data - insert into tables
@@ -89,13 +88,12 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	dataRows := make([][]interface{}, 0, len(rows))
 	ret := uint64(0)
 	commonTagsLen := len(tableCols["tags"])
-
 	colLen := len(tableCols[tableName]) + 2
 	if p.conf.InTableTag {
 		colLen++
 	}
 
-	var tagsIdPosition int = 0
+	var tagsIdPosition = 0
 
 	for _, row := range rows {
 		// Split the tags into individual common tags and
@@ -334,7 +332,7 @@ func insertTags(conf *ClickhouseConfig, db *sqlx.DB, startID int, rows [][]strin
 		// more details on the item:
 		// https://blog.learngoprogramming.com/golang-variadic-funcs-how-to-patterns-369408f19085
 		// Passing a slice to variadic param with an empty-interface
-		var variadicArgs []interface{} = make([]interface{}, len(row)+1) // +1 here for additional 'id' column value
+		var variadicArgs = make([]interface{}, len(row)+1) // +1 here for additional 'id' column value
 		// Place id at the beginning
 		variadicArgs[0] = id
 		// And all the rest of column values afterwards

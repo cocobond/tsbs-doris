@@ -8,19 +8,19 @@ import (
 	"github.com/timescale/tsbs/pkg/query"
 )
 
-// BaseGenerator contains settings specific for ClickHouse.
+// BaseGenerator contains settings specific for Doris.
 type BaseGenerator struct {
 	UseTags bool
 }
 
-// GenerateEmptyQuery returns an empty query.ClickHouse.
+// GenerateEmptyQuery returns an empty query.Doris.
 func (g *BaseGenerator) GenerateEmptyQuery() query.Query {
-	return query.NewClickHouse()
+	return query.NewDoris()
 }
 
 // fill Query fills the query struct with data
 func (g *BaseGenerator) fillInQuery(qi query.Query, humanLabel, humanDesc, table, sql string) {
-	q := qi.(*query.ClickHouse)
+	q := qi.(*query.Doris)
 	q.HumanLabel = []byte(humanLabel)
 	q.HumanDescription = []byte(humanDesc)
 	q.Table = []byte(table)
@@ -35,10 +35,10 @@ func (g *BaseGenerator) NewDevops(start, end time.Time, scale int) (utils.QueryG
 		return nil, err
 	}
 
-	devops := &Devops{
+	d := &Devops{
 		BaseGenerator: g,
 		Core:          core,
 	}
 
-	return devops, nil
+	return d, nil
 }
