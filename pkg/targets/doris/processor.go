@@ -14,7 +14,7 @@ import (
 type processor struct {
 	db   *sqlx.DB
 	csi  *syncCSI
-	conf *ClickhouseConfig
+	conf *DorisConfig
 }
 
 // load.Processor interface implementation
@@ -32,7 +32,10 @@ func (p *processor) Init(workerNum int, doLoad, hashWorkers bool) {
 // load.ProcessorCloser interface implementation
 func (p *processor) Close(doLoad bool) {
 	if doLoad {
-		p.db.Close()
+		err := p.db.Close()
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -266,7 +269,7 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 }
 
 // insertTags fills tags table with values
-func insertTags(conf *ClickhouseConfig, db *sqlx.DB, startID int, rows [][]string, returnResults bool) map[string]int64 {
+func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, returnResults bool) map[string]int64 {
 	// Map hostname to tags_id
 	ret := make(map[string]int64)
 

@@ -242,9 +242,9 @@ func (d *Devops) HighCPUForHosts(qi query.Query, nHosts int) {
 	sql := fmt.Sprintf(`
         SELECT *
         FROM cpu
-        PREWHERE (usage_user > 90.0) AND 
-        (created_at >= cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint))
-        AND cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
+        WHERE (usage_user > 90.0) AND 
+        time >= cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
+        AND time < cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
         %s
         `,
 		interval.Start().Format(dorisTimeStringFormat),
