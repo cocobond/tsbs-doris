@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/blagojts/viper"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/kshvakov/clickhouse"
 	"github.com/spf13/pflag"
 	"github.com/timescale/tsbs/internal/utils"
 	"github.com/timescale/tsbs/pkg/query"
@@ -16,11 +16,11 @@ import (
 
 // Program option vars:
 var (
-	chConnect string
-	hostsList []string
-	user      string
-	password  string
-
+	chConnect   string
+	hostsList   []string
+	user        string
+	password    string
+	port        int
 	showExplain bool
 )
 
@@ -36,11 +36,12 @@ func init() {
 	var hosts string
 
 	pflag.String("additional-params", "sslmode=disable",
-		"String of additional ClickHouse connection parameters, e.g., 'sslmode=disable'.")
+		"String of additional Doris connection parameters, e.g., 'sslmode=disable'.")
 	pflag.String("hosts", "localhost",
-		"Comma separated list of ClickHouse hosts (pass multiple values for sharding reads on a multi-node setup)")
-	pflag.String("user", "default", "User to connect to ClickHouse as")
-	pflag.String("password", "", "Password to connect to ClickHouse")
+		"Comma separated list of Doris hosts (pass multiple values for sharding reads on a multi-node setup)")
+	pflag.String("port", "9030", "Port on which to listen for connections.")
+	pflag.String("user", "root", "User to connect to Doris as (default root)")
+	pflag.String("password", "", "Password to connect to Doris (default empty)")
 
 	pflag.Parse()
 
@@ -56,6 +57,7 @@ func init() {
 
 	chConnect = viper.GetString("additional-params")
 	hosts = viper.GetString("hosts")
+	port = viper.GetInt("port")
 	user = viper.GetString("user")
 	password = viper.GetString("password")
 
@@ -68,7 +70,7 @@ func init() {
 }
 
 func main() {
-	runner.Run(&query.ClickHousePool, newProcessor)
+	runner.Run(&query.DorisPool, newProcessor)
 }
 
 // Get the connection string for a connection to PostgreSQL.
@@ -80,13 +82,13 @@ func getConnectString(workerNumber int) string {
 	// Round robin the host/worker assignment by assigning a host based on workerNumber % totalNumberOfHosts
 	host := hostsList[workerNumber%len(hostsList)]
 
-	return fmt.Sprintf("tcp://%s:9000?username=%s&password=%s&database=%s", host, user, password, runner.DatabaseName())
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, password, host, port, runner.DatabaseName())
 }
 
 // prettyPrintResponse prints a Query and its response in JSON format with two
 // keys: 'query' which has a value of the SQL used to generate the second key
 // 'results' which is an array of each row in the return set.
-func prettyPrintResponse(rows *sqlx.Rows, q *query.ClickHouse) {
+func prettyPrintResponse(rows *sqlx.Rows, q *query.Doris) {
 	resp := make(map[string]interface{})
 	resp["query"] = string(q.SqlQuery)
 
@@ -127,9 +129,9 @@ func newProcessor() query.Processor {
 
 // Init query.Processor interface implementation
 func (p *processor) Init(workerNumber int) {
-	p.db = sqlx.MustConnect("clickhouse", getConnectString(workerNumber))
+	p.db = sqlx.MustConnect("mysql", getConnectString(workerNumber))
 	p.opts = &queryExecutorOptions{
-		// ClickHouse could not do EXPLAIN
+		// Doris could not do EXPLAIN
 		showExplain:   false,
 		debug:         runner.DebugLevel() > 0,
 		printResponse: runner.DoPrintResponses(),
@@ -143,8 +145,8 @@ func (p *processor) ProcessQuery(q query.Query, isWarm bool) ([]*query.Stat, err
 		return nil, nil
 	}
 
-	// Ensure ClickHouse query
-	chQuery := q.(*query.ClickHouse)
+	// Ensure Doris query
+	chQuery := q.(*query.Doris)
 
 	start := time.Now()
 
@@ -166,7 +168,10 @@ func (p *processor) ProcessQuery(q query.Query, isWarm bool) ([]*query.Stat, err
 	}
 
 	// Finalize the query
-	rows.Close()
+	err = rows.Close()
+	if err != nil {
+		return nil, err
+	}
 	took := float64(time.Since(start).Nanoseconds()) / 1e6
 
 	stat := query.GetStat()

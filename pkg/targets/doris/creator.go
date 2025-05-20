@@ -15,7 +15,7 @@ type dbCreator struct {
 	ds      targets.DataSource
 	headers *common.GeneratedDataHeaders
 	connStr string
-	config  *ClickhouseConfig
+	config  *DorisConfig
 }
 
 // loader.DBCreator interface implementation
@@ -30,7 +30,7 @@ func (d *dbCreator) DBExists(dbName string) bool {
 	db := sqlx.MustConnect(dbType, getConnectString(d.config, false))
 	defer db.Close()
 
-	sql := fmt.Sprintf("SELECT name, engine FROM system.databases WHERE name = '%s'", dbName)
+	sql := fmt.Sprintf("SHOW DATABASES LIKE '%s'", dbName)
 	if d.config.Debug > 0 {
 		fmt.Printf(sql)
 	}
@@ -52,7 +52,7 @@ func (d *dbCreator) DBExists(dbName string) bool {
 	return false
 }
 
-// loader.DBCreator interface implementation
+// RemoveOldDB loader.DBCreator interface implementation
 func (d *dbCreator) RemoveOldDB(dbName string) error {
 	db := sqlx.MustConnect(dbType, getConnectString(d.config, false))
 	defer db.Close()
@@ -64,7 +64,7 @@ func (d *dbCreator) RemoveOldDB(dbName string) error {
 	return nil
 }
 
-// loader.DBCreator interface implementation
+// CreateDB loader.DBCreator interface implementation
 func (d *dbCreator) CreateDB(dbName string) error {
 	// Connect to ClickHouse in general and CREATE DATABASE
 	db := sqlx.MustConnect(dbType, getConnectString(d.config, false))
@@ -98,7 +98,7 @@ func (d *dbCreator) CreateDB(dbName string) error {
 }
 
 // createTagsTable builds CREATE TABLE SQL statement and runs it
-func createTagsTable(conf *ClickhouseConfig, db *sqlx.DB, tagNames, tagTypes []string) {
+func createTagsTable(conf *DorisConfig, db *sqlx.DB, tagNames, tagTypes []string) {
 	sql := generateTagsTableQuery(tagNames, tagTypes)
 	if conf.Debug > 0 {
 		fmt.Printf(sql)
@@ -110,7 +110,7 @@ func createTagsTable(conf *ClickhouseConfig, db *sqlx.DB, tagNames, tagTypes []s
 }
 
 // createMetricsTable builds CREATE TABLE SQL statement and runs it
-func createMetricsTable(conf *ClickhouseConfig, db *sqlx.DB, tableName string, fieldColumns []string) {
+func createMetricsTable(conf *DorisConfig, db *sqlx.DB, tableName string, fieldColumns []string) {
 	tableCols[tableName] = fieldColumns
 
 	// We'll have some service columns in table to be created and columnNames contains all column names to be created
