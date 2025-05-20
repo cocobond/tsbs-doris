@@ -151,32 +151,39 @@ func (d *Devops) GroupByTimeAndPrimaryTag(qi query.Query, numMetrics int) {
 	sql := fmt.Sprintf(`
         SELECT
 			hour,
-			%s,
-            %s
-		FROM (
-			SELECT
-				((time DIV 1000000000) DIV 3600 * 3600) AS hour,
-				tags_id,
-				%s
-			FROM cpu
-			WHERE
-				time >= CAST((UNIX_TIMESTAMP('%s') * 1000000000) + MICROSECOND('%s') * 1000 AS BIGINT)
-				AND time < CAST((UNIX_TIMESTAMP('%s') * 1000000000) + MICROSECOND('%s') * 1000 AS BIGINT)
-			GROUP BY
+			%s
+        	%s
+		FROM
+		(
+			SELECT 
 				hour,
-				tags_id
+				tags_id,
+		    	%s
+			FROM (
+				SELECT
+					(UNIX_TIMESTAMP(FROM_UNIXTIME(time / 1000000000)) DIV 3600) * 3600 AS hour,
+					tags_id,
+		    		ROW_NUMBER() OVER (PARTITION BY tags_id ORDER BY RAND()) AS rn,
+					%s
+				FROM cpu
+				WHERE time >= (UNIX_TIMESTAMP('%s') * 1000000000)
+					AND time < (UNIX_TIMESTAMP('%s') * 1000000000)
+				GROUP BY
+					hour,
+					tags_id
+				) t
+			WHERE rn = 1
 		) AS cpu_avg
-		%s
+			%s
 		ORDER BY
 			hour ASC,
 			%s
         `,
-		hostnameField,                                  // main SELECT %s,
+		hostnameField,                                  // main SELECT %s
+		strings.Join(meanClauses, ", "),                // main SELECT %s
 		strings.Join(meanClauses, ", "),                // main SELECT %s
 		strings.Join(selectClauses, ", "),              // cpu_avg SELECT %s
 		interval.Start().Format(dorisTimeStringFormat), // cpu_avg time >= '%s'
-		interval.Start().Format(dorisTimeStringFormat), // cpu_avg time >= '%s'
-		interval.End().Format(dorisTimeStringFormat),   // cpu_avg time < '%s'
 		interval.End().Format(dorisTimeStringFormat),   // cpu_avg time < '%s'
 		joinClause,    // JOIN clause
 		hostnameField) // ORDER BY %s
