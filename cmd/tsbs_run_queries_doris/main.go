@@ -79,7 +79,7 @@ func main() {
 // across replicas. Each worker is assigned a sequence number -- we'll use that
 // to evenly distribute hosts to worker connections
 func getConnectString(workerNumber int) string {
-	// Round robin the host/worker assignment by assigning a host based on workerNumber % totalNumberOfHosts
+	// Round-robin the host/worker assignment by assigning a host based on workerNumber % totalNumberOfHosts
 	host := hostsList[workerNumber%len(hostsList)]
 
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, password, host, port, runner.DatabaseName())

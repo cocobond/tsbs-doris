@@ -10,7 +10,7 @@ import (
 	"github.com/timescale/tsbs/internal/utils"
 	"github.com/timescale/tsbs/load"
 	"github.com/timescale/tsbs/pkg/targets"
-	"github.com/timescale/tsbs/pkg/targets/clickhouse"
+	"github.com/timescale/tsbs/pkg/targets/doris"
 )
 
 // Global vars
@@ -20,12 +20,12 @@ var (
 
 var loader load.BenchmarkRunner
 var loaderConf load.BenchmarkRunnerConfig
-var conf *clickhouse.ClickhouseConfig
+var conf *doris.DorisConfig
 
 // Parse args:
 func init() {
 	loaderConf = load.BenchmarkRunnerConfig{}
-	target := clickhouse.NewTarget()
+	target := doris.NewTarget()
 	loaderConf.AddToFlagSet(pflag.CommandLine)
 	target.TargetSpecificFlags("", pflag.CommandLine)
 	pflag.Parse()
@@ -39,8 +39,9 @@ func init() {
 	if err := viper.Unmarshal(&loaderConf); err != nil {
 		panic(fmt.Errorf("unable to decode config: %s", err))
 	}
-	conf = &clickhouse.ClickhouseConfig{
+	conf = &doris.DorisConfig{
 		Host:       viper.GetString("host"),
+		Port:       viper.GetInt("port"),
 		User:       viper.GetString("user"),
 		Password:   viper.GetString("password"),
 		LogBatches: viper.GetBool("log-batches"),
@@ -52,5 +53,5 @@ func init() {
 }
 
 func main() {
-	loader.RunBenchmark(clickhouse.NewBenchmark(loaderConf.FileName, loaderConf.HashWorkers, conf))
+	loader.RunBenchmark(doris.NewBenchmark(loaderConf.FileName, loaderConf.HashWorkers, conf))
 }

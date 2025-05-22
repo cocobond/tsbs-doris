@@ -26,8 +26,9 @@ func (c dorisTarget) Serializer() serialize.PointSerializer {
 
 func (c dorisTarget) TargetSpecificFlags(flagPrefix string, flagSet *pflag.FlagSet) {
 	flagSet.String(flagPrefix+"host", "localhost", "Hostname of Doris instance")
-	flagSet.String(flagPrefix+"user", "default", "User to connect to Doris as")
-	flagSet.String(flagPrefix+"password", "", "Password for user connecting to Doris")
+	flagSet.String(flagPrefix+"port", "9030", "Port of Doris's mysql client")
+	flagSet.String(flagPrefix+"user", "root", "User to connect to Doris as(default: root)")
+	flagSet.String(flagPrefix+"password", "", "Password for user connecting to Doris(default: null)")
 	flagSet.Bool(flagPrefix+"log-batches", false, "Whether to time individual batches.")
 	flagSet.Int(flagPrefix+"debug", 0, "Debug printing (choices: 0, 1, 2). (default 0)")
 }
