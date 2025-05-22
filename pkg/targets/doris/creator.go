@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/kshvakov/clickhouse"
 	"github.com/timescale/tsbs/pkg/data/usecases/common"
 	"github.com/timescale/tsbs/pkg/targets"
 )
@@ -18,38 +18,34 @@ type dbCreator struct {
 	config  *DorisConfig
 }
 
-// loader.DBCreator interface implementation
+// Init loader.DBCreator interface implementation
 func (d *dbCreator) Init() {
 	// fills dbCreator struct with data structure (tables description)
 	// specified at the beginning of the data file
 	d.headers = d.ds.Headers()
 }
 
-// loader.DBCreator interface implementation
+// DBExists loader.DBCreator interface implementation
 func (d *dbCreator) DBExists(dbName string) bool {
 	db := sqlx.MustConnect(dbType, getConnectString(d.config, false))
 	defer db.Close()
 
-	sql := fmt.Sprintf("SHOW DATABASES LIKE '%s'", dbName)
+	const sql = `SELECT SCHEMA_NAME 
+                   FROM information_schema.SCHEMATA 
+                   WHERE SCHEMA_NAME = ?`
+
 	if d.config.Debug > 0 {
-		fmt.Printf(sql)
-	}
-	var rows []struct {
-		Name   string `db:"name"`
-		Engine string `db:"engine"`
+		fmt.Printf("[DEBUG] Checking database existence: %s\n", dbName+" SQL: "+sql)
 	}
 
-	err := db.Select(&rows, sql)
+	var exists bool
+	// 直接查询是否存在目标数据库
+	err := db.Get(&exists, `SELECT EXISTS(SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?)`, dbName)
 	if err != nil {
 		panic(err)
 	}
-	for _, row := range rows {
-		if row.Name == dbName {
-			return true
-		}
-	}
 
-	return false
+	return exists
 }
 
 // RemoveOldDB loader.DBCreator interface implementation
@@ -66,7 +62,7 @@ func (d *dbCreator) RemoveOldDB(dbName string) error {
 
 // CreateDB loader.DBCreator interface implementation
 func (d *dbCreator) CreateDB(dbName string) error {
-	// Connect to ClickHouse in general and CREATE DATABASE
+	// Connect to Doris in general and CREATE DATABASE
 	db := sqlx.MustConnect(dbType, getConnectString(d.config, false))
 	sql := fmt.Sprintf("CREATE DATABASE %s", dbName)
 	_, err := db.Exec(sql)
@@ -76,7 +72,7 @@ func (d *dbCreator) CreateDB(dbName string) error {
 	db.Close()
 	db = nil
 
-	// Connect to specified database within ClickHouse
+	// Connect to specified database within Doris
 	db = sqlx.MustConnect(dbType, getConnectString(d.config, true))
 	defer db.Close()
 
@@ -132,21 +128,22 @@ func createMetricsTable(conf *DorisConfig, db *sqlx.DB, tableName string, fieldC
 			// Skip nameless columns
 			continue
 		}
-		columnsWithType = append(columnsWithType, fmt.Sprintf("%s Nullable(Float64)", column))
+		columnsWithType = append(columnsWithType, fmt.Sprintf("%s bigint", column))
 	}
 
 	sql := fmt.Sprintf(`
 			CREATE TABLE %s (
-				created_date    Date     DEFAULT today(),
-				created_at      DateTime DEFAULT now(),
-				time            String,
-				tags_id         UInt32,
+				tags_id bigint,
+				time bigint,
 				%s,
-				additional_tags String   DEFAULT ''
-			) ENGINE = MergeTree(created_date, (tags_id, created_at), 8192)
+				additional_tags String  DEFAULT ''
+			 ) DUPLICATE KEY(%s)
+			DISTRIBUTED BY HASH(tags_id) BUCKETS 10 PROPERTIES('replication_num' = '1')
 			`,
 		tableName,
-		strings.Join(columnsWithType, ","))
+		strings.Join(columnsWithType, ","),
+		"`tags_id`")
+
 	if conf.Debug > 0 {
 		fmt.Printf(sql)
 	}
@@ -166,26 +163,25 @@ func generateTagsTableQuery(tagNames, tagTypes []string) string {
 
 	tagColumnDefinitions := make([]string, len(tagNames))
 	for i, tagName := range tagNames {
-		tagType := serializedTypeToClickHouseType(tagTypes[i])
-		tagColumnDefinitions[i] = fmt.Sprintf("%s %s", tagName, tagType)
+		//tagType := serializedTypeToDorisType(tagTypes[i])
+		tagColumnDefinitions[i] = fmt.Sprintf("%s %s", tagName, "varchar(30)")
 	}
 
 	cols := strings.Join(tagColumnDefinitions, ",\n")
 
-	index := "id"
-
-	return fmt.Sprintf(
-		"CREATE TABLE tags(\n"+
-			"created_date Date     DEFAULT today(),\n"+
-			"created_at   DateTime DEFAULT now(),\n"+
-			"id           UInt32,\n"+
-			"%s"+
-			") ENGINE = MergeTree(created_date, (%s), 8192)",
-		cols,
-		index)
+	return fmt.Sprintf(`
+			CREATE TABLE tags(
+			tags_id bigint,
+			%s 
+			) 
+			DUPLICATE KEY(%s)
+			DISTRIBUTED BY HASH(tags_id) BUCKETS 10 
+			PROPERTIES("replication_num" = "1")
+			`,
+		cols, "`tags_id`")
 }
 
-func serializedTypeToClickHouseType(serializedType string) string {
+func serializedTypeToDorisType(serializedType string) string {
 	switch serializedType {
 	case "string":
 		return "Nullable(String)"

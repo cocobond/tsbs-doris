@@ -93,8 +93,6 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		colLen++
 	}
 
-	var tagsIdPosition int = 0
-
 	for _, row := range rows {
 		// Split the tags into individual common tags and
 		// an extra bit leftover for non-common tags that need to be added separately.
@@ -117,15 +115,6 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		for i := 0; i < commonTagsLen; i++ {
 			tags[i] = strings.Split(tags[i], "=")[1]
 		}
-		// prepare JSON for tags that are not common
-		var json interface{} = nil
-		if len(tags) > commonTagsLen {
-			// Join additional tags into JSON string
-			json = subsystemTagsToJSON(strings.Split(tags[commonTagsLen], ","))
-		} else {
-			// No additional tags
-			json = ""
-		}
 
 		// fields line ex.:
 		// 1451606400000000000,58,2,24,61,22,63,6,44,80,38
@@ -144,25 +133,19 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		if err != nil {
 			panic(err)
 		}
-		timeUTC := time.Unix(0, timestampNano)
-		TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
+		//timeUTC := time.Unix(0, timestampNano)
+		//TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
 
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		// First columns in table are
-		// created_date
-		// created_at
 		// time
 		// tags_id - would be nil for now
-		// additional_tags
-		tagsIdPosition = 3 // what is the position of the tags_id in the row - nil value
+		// what is the position of the tags_id in the row - nil value
 		r = append(r,
-			timeUTC,    // created_date
-			timeUTC,    // created_at
-			TimeUTCStr, // time
-			nil,        // tags_id
-			json)       // additional_tags
-
+			nil,           // tags_id
+			timestampNano, // time
+		)
 		if p.conf.InTableTag {
 			r = append(r, tags[0]) // tags[0] = hostname
 		}
@@ -186,12 +169,17 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	// New tags in this batch, need to be inserted
 	newTags := make([][]string, 0, len(rows))
 	p.csi.mutex.RLock()
+	// judge by device hostname(unique)
+	seen := make(map[string]bool)
 	for _, tagRow := range tagRows {
 		// tagRow contains what was called `tags` earlier - see one screen higher
 		// tagRow[0] = hostname
 		if _, ok := p.csi.m[tagRow[0]]; !ok {
 			// Tags of this hostname are not listed as inserted - new tags line, add it for creation
-			newTags = append(newTags, tagRow)
+			if !seen[tagRow[0]] {
+				newTags = append(newTags, tagRow)
+				seen[tagRow[0]] = true
+			}
 		}
 	}
 	p.csi.mutex.RUnlock()
@@ -209,54 +197,46 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	}
 
 	// Deal with tag ids for each data row
-	p.csi.mutex.RLock()
-	for i := range dataRows {
-		// tagKey = hostname
-		tagKey := tagRows[i][0]
-		// Insert id of the tag (tags.id) for this host into tags_id position of the dataRows record
-		// refers to
-		// nil,		// tags_id
-
-		dataRows[i][tagsIdPosition] = p.csi.m[tagKey]
-	}
-	p.csi.mutex.RUnlock()
-
 	// Prepare column names
 	cols := make([]string, 0, colLen)
-	// First columns would be "created_date", "created_at", "time", "tags_id", "additional_tags"
-	// Inspite of "additional_tags" being added the last one in CREATE TABLE stmt
-	// it goes as a third one here - because we can move columns - they are named
-	// and it is easier to keep variable coumns at the end of the list
-	cols = append(cols, "created_date", "created_at", "time", "tags_id", "additional_tags")
+	cols = append(cols, "tags_id", "time")
 	if p.conf.InTableTag {
 		cols = append(cols, tableCols["tags"][0]) // hostname
 	}
 	cols = append(cols, tableCols[tableName]...)
 
-	// INSERT statement template
+	// 生成占位符模板（每个值的占位符）
+	rowPlaceholder := "(" + strings.Repeat("?,", len(cols)-1) + "?)"
+	var placeholders []string
+	for range dataRows {
+		placeholders = append(placeholders, rowPlaceholder)
+	}
+
+	// 构建完整的 INSERT 语句
 	sql := fmt.Sprintf(`
-		INSERT INTO %s (
-			%s
-		) VALUES (
-			%s
-		)
-		`,
+    INSERT INTO %s (
+        %s
+    ) VALUES 
+        %s
+    `,
 		tableName,
 		strings.Join(cols, ","),
-		strings.Repeat(",?", len(cols))[1:]) // We need '?,?,?', but repeat ",?" thus we need to chop off 1-st char
+		strings.Join(placeholders, ","))
 
-	tx := p.db.MustBegin()
-	stmt, err := tx.Prepare(sql)
-	if err != nil {
-		panic(err)
-	}
+	// 准备参数（需要展开所有行的数据）
+	args := make([]interface{}, 0, len(dataRows)*len(cols))
+	tagsId := 0
+	argsIndex := 0
 	for _, r := range dataRows {
-		_, err := stmt.Exec(r...)
-		if err != nil {
-			panic(err)
-		}
+		tagsId++
+		args = append(args, r...)
+		args[argsIndex] = tagsId
+		argsIndex = argsIndex + len(r)
 	}
-	err = stmt.Close()
+
+	// 使用事务执行批量插入
+	tx := p.db.MustBegin()
+	_, err := tx.Exec(sql, args...)
 	if err != nil {
 		panic(err)
 	}
@@ -273,29 +253,11 @@ func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, re
 	// Map hostname to tags_id
 	ret := make(map[string]int64)
 
-	// reflect tags table structure which is
-	// CREATE TABLE tags(
-	//	 created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	//	 id,
-	//   %s
-	// ) engine=MergeTree(created_at, (%s), 8192)
-
-	// build insert-multiple-rows INSERT statement like:
-	// INSERT INTO tags (
-	//   ... list of column names ...
-	// ) VALUES
-	// ( ... row 1 values ... ),
-	// ( ... row 2 values ... ),
-	// ...
-	// ( ... row N values ... ),
-
-	// Columns. Ex.:
-	// hostname,region,datacenter,rack,os,arch,team,service,service_version,service_environment
 	cols := tableCols["tags"]
 	// Add id column to prepared statement
 	sql := fmt.Sprintf(`
 		INSERT INTO tags(
-			id,%s
+			tags_id, %s
 		) VALUES (
 			?%s
 		)
@@ -306,12 +268,11 @@ func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, re
 		fmt.Printf(sql)
 	}
 
-	// In a single transaction insert tags row-by-row
-	// ClickHouse driver accumulates all rows inside a transaction into one batch
 	tx, err := db.Begin()
 	if err != nil {
 		panic(err)
 	}
+
 	stmt, err := tx.Prepare(sql)
 	if err != nil {
 		panic(err)
@@ -319,33 +280,42 @@ func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, re
 	defer stmt.Close()
 
 	id := startID
+	var values []interface{}
+	var valueStrings []string
+
 	for _, row := range rows {
-		// id of the new tag
 		id++
 
-		// unfortunately, it is not possible to pass a slice into variadic function of type interface
-		// more details on the item:
-		// https://blog.learngoprogramming.com/golang-variadic-funcs-how-to-patterns-369408f19085
-		// Passing a slice to variadic param with an empty-interface
-		var variadicArgs []interface{} = make([]interface{}, len(row)+1) // +1 here for additional 'id' column value
-		// Place id at the beginning
+		// 构造一行数据
+		variadicArgs := make([]interface{}, len(row)+1)
 		variadicArgs[0] = id
-		// And all the rest of column values afterwards
 		for i, value := range row {
 			variadicArgs[i+1] = convertBasedOnType(tagColumnTypes[i], value)
 		}
 
-		// And now expand []interface{} with the same data as 'row' contains (plus 'id') in Exec(args ...interface{})
-		_, err := stmt.Exec(variadicArgs...)
-		if err != nil {
-			panic(err)
-		}
+		// 构造占位符部分，如 "(?, ?, ?)"
+		placeholders := strings.Repeat("?,", len(variadicArgs))
+		placeholders = placeholders[:len(placeholders)-1] // 去掉最后一个逗号
+		valueStrings = append(valueStrings, "("+placeholders+")")
 
-		// Fill map hostname -> id
+		// 添加参数
+		values = append(values, variadicArgs...)
+
 		if returnResults {
-			// Map hostname -> tags_id
 			ret[row[0]] = int64(id)
 		}
+	}
+
+	batchSQL := fmt.Sprintf(
+		"INSERT INTO tags VALUES %s",
+		strings.Join(valueStrings, ","))
+	_, err = tx.Exec(batchSQL, values...)
+	if err != nil {
+		err := tx.Rollback()
+		if err != nil {
+			return nil
+		}
+		panic(err)
 	}
 
 	err = tx.Commit()
