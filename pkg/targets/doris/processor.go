@@ -254,30 +254,11 @@ func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, re
 	ret := make(map[string]int64)
 
 	cols := tableCols["tags"]
-	// Add id column to prepared statement
-	sql := fmt.Sprintf(`
-		INSERT INTO tags(
-			tags_id, %s
-		) VALUES (
-			?%s
-		)
-		`,
-		strings.Join(cols, ","),
-		strings.Repeat(",?", len(cols)))
-	if conf.Debug > 0 {
-		fmt.Printf(sql)
-	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		panic(err)
 	}
-
-	stmt, err := tx.Prepare(sql)
-	if err != nil {
-		panic(err)
-	}
-	defer stmt.Close()
 
 	id := startID
 	var values []interface{}
@@ -295,7 +276,7 @@ func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, re
 
 		// 构造占位符部分，如 "(?, ?, ?)"
 		placeholders := strings.Repeat("?,", len(variadicArgs))
-		placeholders = placeholders[:len(placeholders)-1] // 去掉最后一个逗号
+		placeholders = placeholders[:len(placeholders)-1]
 		valueStrings = append(valueStrings, "("+placeholders+")")
 
 		// 添加参数
@@ -307,8 +288,14 @@ func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, re
 	}
 
 	batchSQL := fmt.Sprintf(
-		"INSERT INTO tags VALUES %s",
+		"INSERT INTO tags (tags_id, %s) VALUES %s",
+		strings.Join(cols, ","),
 		strings.Join(valueStrings, ","))
+	stmt, err := tx.Prepare(batchSQL)
+	if err != nil {
+		panic(err)
+	}
+	defer stmt.Close()
 	_, err = tx.Exec(batchSQL, values...)
 	if err != nil {
 		err := tx.Rollback()

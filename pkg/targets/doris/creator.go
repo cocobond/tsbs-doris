@@ -128,21 +128,23 @@ func createMetricsTable(conf *DorisConfig, db *sqlx.DB, tableName string, fieldC
 			// Skip nameless columns
 			continue
 		}
-		columnsWithType = append(columnsWithType, fmt.Sprintf("%s bigint", column))
+		columnsWithType = append(columnsWithType, fmt.Sprintf("%s FLOAT", column))
 	}
 
 	sql := fmt.Sprintf(`
 			CREATE TABLE %s (
-				tags_id bigint,
-				time bigint,
+				tags_id BIGINT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    			created_date DATE DEFAULT CURRENT_DATE,
+				time STRING,
 				%s,
 				additional_tags String  DEFAULT ''
 			 ) DUPLICATE KEY(%s)
-			DISTRIBUTED BY HASH(tags_id) BUCKETS 10 PROPERTIES('replication_num' = '1')
+			DISTRIBUTED BY HASH(%s) BUCKETS 10 PROPERTIES('replication_num' = '1')
 			`,
 		tableName,
 		strings.Join(columnsWithType, ","),
-		"`tags_id`")
+		"`tags_id`,`created_at`", "`tags_id`,`created_at`")
 
 	if conf.Debug > 0 {
 		fmt.Printf(sql)
@@ -171,29 +173,15 @@ func generateTagsTableQuery(tagNames, tagTypes []string) string {
 
 	return fmt.Sprintf(`
 			CREATE TABLE tags(
-			tags_id bigint,
-			%s 
-			) 
+			tags_id BIGINT,
+			created_date DATE DEFAULT CURRENT_DATE,
+    		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			%s,
+			INDEX idx_hostname(hostname) USING INVERTED
+			)
 			DUPLICATE KEY(%s)
 			DISTRIBUTED BY HASH(tags_id) BUCKETS 10 
 			PROPERTIES("replication_num" = "1")
 			`,
 		cols, "`tags_id`")
-}
-
-func serializedTypeToDorisType(serializedType string) string {
-	switch serializedType {
-	case "string":
-		return "Nullable(String)"
-	case "float32":
-		return "Nullable(Float32)"
-	case "float64":
-		return "Nullable(Float64)"
-	case "int64":
-		return "Nullable(Int64)"
-	case "int32":
-		return "Nullable(Int32)"
-	default:
-		panic(fmt.Sprintf("unrecognized type %s", serializedType))
-	}
 }
