@@ -94,21 +94,19 @@ func (d *Devops) MaxAllCPU(qi query.Query, nHosts int, duration time.Duration) {
 
 	sql := fmt.Sprintf(`
         SELECT
-		  FROM_UNIXTIME((time DIV 1000000000) DIV 3600 * 3600) AS hour,
+		  DATE_TRUNC('HOUR', created_at) AS hour,
 		  %s
 		FROM cpu
 		WHERE
 		  %s
-		  AND time >= cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
-		  AND time < cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
+		  AND (created_at >= '%s')
+    	AND (created_at < '%s')
 		GROUP BY hour
 		ORDER BY hour ASC;
         `,
 		strings.Join(selectClauses, ", "),
 		d.getHostWhereString(nHosts),
 		interval.Start().Format(dorisTimeStringFormat),
-		interval.Start().Format(dorisTimeStringFormat),
-		interval.End().Format(dorisTimeStringFormat),
 		interval.End().Format(dorisTimeStringFormat))
 
 	humanLabel := devops.GetMaxAllLabel("Doris", nHosts)
@@ -147,7 +145,6 @@ func (d *Devops) GroupByTimeAndPrimaryTag(qi query.Query, numMetrics int) {
 		joinClause = "INNER JOIN tags ON cpu_avg.tags_id = tags.tags_id"
 	}
 
-	// TODO: diff about ckSQL "ANY JOIN",can't transform
 	sql := fmt.Sprintf(`
         SELECT
 			hour,
@@ -155,37 +152,29 @@ func (d *Devops) GroupByTimeAndPrimaryTag(qi query.Query, numMetrics int) {
         	%s
 		FROM
 		(
-			SELECT 
-				hour,
+			SELECT
+				DATE_TRUNC('HOUR', created_at) AS hour,
 				tags_id,
-		    	%s
-			FROM (
-				SELECT
-					(UNIX_TIMESTAMP(FROM_UNIXTIME(time / 1000000000)) DIV 3600) * 3600 AS hour,
-					tags_id,
-		    		ROW_NUMBER() OVER (PARTITION BY tags_id ORDER BY RAND()) AS rn,
-					%s
-				FROM cpu
-				WHERE time >= (UNIX_TIMESTAMP('%s') * 1000000000)
-					AND time < (UNIX_TIMESTAMP('%s') * 1000000000)
-				GROUP BY
-					hour,
-					tags_id
-				) t
-			WHERE rn = 1
-		) AS cpu_avg
+				%s
+			FROM cpu
+			WHERE 
+				created_at >= '%s'
+        		AND created_at < '%s'
+			GROUP BY
+				hour,
+				tags_id
+			) as cpu_avg
 			%s
-		ORDER BY
+			ORDER BY
 			hour ASC,
 			%s
         `,
 		hostnameField,                                  // main SELECT %s
 		strings.Join(meanClauses, ", "),                // main SELECT %s
-		strings.Join(meanClauses, ", "),                // main SELECT %s
 		strings.Join(selectClauses, ", "),              // cpu_avg SELECT %s
 		interval.Start().Format(dorisTimeStringFormat), // cpu_avg time >= '%s'
 		interval.End().Format(dorisTimeStringFormat),   // cpu_avg time < '%s'
-		joinClause,    // JOIN clause
+		joinClause,                                     // JOIN clause
 		hostnameField) // ORDER BY %s
 
 	humanLabel := devops.GetDoubleGroupByLabel("Doris", numMetrics)
@@ -208,16 +197,15 @@ func (d *Devops) GroupByOrderByLimit(qi query.Query) {
 
 	sql := fmt.Sprintf(`
 			SELECT 
-			  UNIX_TIMESTAMP(FROM_UNIXTIME((time DIV 1000000000) DIV 60 * 60)) AS minute,
+			  DATE_TRUNC('MINUTE', CAST(created_at AS DATETIME)) AS minute,
 			  MAX(usage_user) AS max_usage_user
 			FROM cpu
 			WHERE 
-			   time < cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
+			   created_at < '%s'
 			GROUP BY minute
 			ORDER BY minute
 			LIMIT 5;
 			`,
-		interval.End().Format(dorisTimeStringFormat),
 		interval.End().Format(dorisTimeStringFormat))
 
 	humanLabel := "Doris max cpu over last 5 min-intervals (random end)"
@@ -249,14 +237,12 @@ func (d *Devops) HighCPUForHosts(qi query.Query, nHosts int) {
 	sql := fmt.Sprintf(`
         SELECT *
         FROM cpu
-        WHERE (usage_user > 90.0) AND 
-        time >= cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
-        AND time < cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
+        WHERE (usage_user > 90.0) 
+        AND (created_at >= '%s')
+    	AND (created_at < '%s')
         %s
         `,
 		interval.Start().Format(dorisTimeStringFormat),
-		interval.Start().Format(dorisTimeStringFormat),
-		interval.End().Format(dorisTimeStringFormat),
 		interval.End().Format(dorisTimeStringFormat),
 		hostWhereClause)
 
@@ -273,16 +259,30 @@ func (d *Devops) HighCPUForHosts(qi query.Query, nHosts int) {
 func (d *Devops) LastPointPerHost(qi query.Query) {
 	var sql string
 	if d.UseTags {
+		// get the lastest tags
 		sql = fmt.Sprintf(`
-            SELECT t.*, c.*
-			FROM tags t
-			INNER JOIN (
-			  SELECT 
-				cpu.*,
-				ROW_NUMBER() OVER (PARTITION BY tags_id ORDER BY time DESC) AS rn
-			  FROM cpu
-			) AS c ON t.tags_id = c.tags_id AND c.rn = 1
-			ORDER BY t.hostname, c.time DESC;
+            SELECT 
+				c.*,
+				t.*
+			FROM (
+				SELECT 
+					cpu.*
+				FROM 
+					cpu
+				INNER JOIN (
+					SELECT 
+						tags_id, 
+						MAX(created_at) AS max_created_at
+					FROM 
+						cpu
+					GROUP BY 
+						tags_id
+				) latest ON cpu.tags_id = latest.tags_id AND cpu.created_at = latest.max_created_at
+			) c
+			INNER JOIN tags t ON c.tags_id = t.tags_id
+			ORDER BY 
+				t.hostname ASC,
+				c.time DESC;
             `)
 	} else {
 		sql = fmt.Sprintf(`
@@ -300,20 +300,7 @@ func (d *Devops) LastPointPerHost(qi query.Query) {
 }
 
 // GroupByTime selects the MAX for numMetrics metrics under 'cpu',
-// per minute for nhosts hosts,
-// e.g. in pseudo-SQL:
-//
-// SELECT minute, max(metric1), ..., max(metricN)
-// FROM cpu
-// WHERE
-//
-//		(hostname = '$HOSTNAME_1' OR ... OR hostname = '$HOSTNAME_N')
-//	AND time >= '$HOUR_START'
-//	AND time < '$HOUR_END'
-//
-// GROUP BY minute
-// ORDER BY minute ASC
-//
+// per minute for nhosts hosts
 // Resultsets:
 // single-groupby-1-1-12
 // single-groupby-1-1-1
@@ -329,21 +316,19 @@ func (d *Devops) GroupByTime(qi query.Query, nHosts, numMetrics int, timeRange t
 
 	sql := fmt.Sprintf(`
 			SELECT
-			  FROM_UNIXTIME((time DIV 1000000000) DIV 60 * 60)  AS minute,
+			  DATE_TRUNC('MINUTE', CAST(created_at AS DATETIME))  AS minute,
 			  %s
 			FROM cpu
 			WHERE
 			  %s
-			  AND time >= cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
-			  AND time < cast ((UNIX_TIMESTAMP('%s') * 1000000000) + (MICROSECOND('%s') * 1000) AS bigint)
+			  AND (created_at >= '%s')
+    		  AND (created_at < '%s')
 			GROUP BY minute
-			ORDER BY minute ASC;
+			ORDER BY minute;
         `,
 		strings.Join(selectClauses, ", "),
 		d.getHostWhereString(nHosts),
 		interval.Start().Format(dorisTimeStringFormat),
-		interval.Start().Format(dorisTimeStringFormat),
-		interval.End().Format(dorisTimeStringFormat),
 		interval.End().Format(dorisTimeStringFormat))
 
 	humanLabel := fmt.Sprintf("Doris %d cpu metric(s), random %4d hosts, random %s by 1m", numMetrics, nHosts, timeRange)

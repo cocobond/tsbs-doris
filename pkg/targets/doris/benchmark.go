@@ -37,17 +37,16 @@ var tagColumnTypes []string
 // allows for testing
 var fatal = log.Fatalf
 
-// getConnectString() builds connect string to ClickHouse
+// getConnectString() builds connect string to Doris
 // db - whether database specification should be added to the connection string
 func getConnectString(conf *DorisConfig, db bool) string {
 	// connectString: tcp://127.0.0.1:9000?debug=true
-	// ClickHouse ex.:
-	// tcp://host1:9000?username=user&password=qwerty&database=clicks&read_timeout=10&write_timeout=20&alt_hosts=host2:9000,host3:9000
+	// Doris ex.:
 	if db {
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local", conf.User, conf.Password, conf.Host, conf.Port, conf.DbName)
+		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&time_zone=UTC", conf.User, conf.Password, conf.Host, conf.Port, conf.DbName)
 	}
 
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true", conf.User, conf.Password, conf.Host, conf.Port)
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true&time_zone=UTC", conf.User, conf.Password, conf.Host, conf.Port)
 }
 
 // Point is a single row of data keyed by which table it belongs

@@ -17,7 +17,7 @@ type processor struct {
 	conf *DorisConfig
 }
 
-// load.Processor interface implementation
+// Init load.Processor interface implementation
 func (p *processor) Init(workerNum int, doLoad, hashWorkers bool) {
 	if doLoad {
 		p.db = sqlx.MustConnect(dbType, getConnectString(p.conf, true))
@@ -29,7 +29,7 @@ func (p *processor) Init(workerNum int, doLoad, hashWorkers bool) {
 	}
 }
 
-// load.ProcessorCloser interface implementation
+// Close load.ProcessorCloser interface implementation
 func (p *processor) Close(doLoad bool) {
 	if doLoad {
 		err := p.db.Close()
@@ -39,7 +39,7 @@ func (p *processor) Close(doLoad bool) {
 	}
 }
 
-// load.Processor interface implementation
+// ProcessBatch load.Processor interface implementation
 func (p *processor) ProcessBatch(b targets.Batch, doLoad bool) (uint64, uint64) {
 	batches := b.(*tableArr)
 	rowCnt := 0
@@ -139,15 +139,17 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		if err != nil {
 			panic(err)
 		}
+		// Cuz doris highest time accuracy is microSec
 		timeUTC := time.Unix(0, timestampNano)
+		timeUTC = timeUTC.Add(-8 * time.Hour)
 		TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
 
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		r = append(r,
-			nil,     // tags_id
-			timeUTC, // created_at
-			timeUTC, // created_date
+			nil,        // tags_id
+			timeUTC,    // created_at
+			timeUTC,    // created_date
 			TimeUTCStr) // time
 		if p.conf.InTableTag {
 			r = append(r, tags[0]) // tags[0] = hostname
