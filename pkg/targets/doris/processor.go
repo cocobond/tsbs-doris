@@ -44,12 +44,12 @@ func (p *processor) ProcessBatch(b targets.Batch, doLoad bool) (uint64, uint64) 
 	batches := b.(*tableArr)
 	rowCnt := 0
 	metricCnt := uint64(0)
+
 	for tableName, rows := range batches.m {
 		rowCnt += len(rows)
 		if doLoad {
 			start := time.Now()
 			metricCnt += p.processCSI(tableName, rows)
-
 			if p.conf.LogBatches {
 				now := time.Now()
 				took := now.Sub(start)
@@ -83,6 +83,12 @@ var globalSyncCSI = newSyncCSI()
 
 // Process part of incoming data - insert into tables
 func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
+	// start doris group commit suit
+	dorisGroupCommitSql := "set group_commit = async_mode;"
+	_, err := p.db.Exec(dorisGroupCommitSql)
+	if err != nil {
+		panic(err)
+	}
 	tagRows := make([][]string, 0, len(rows))
 	dataRows := make([][]interface{}, 0, len(rows))
 	ret := uint64(0)
@@ -139,9 +145,9 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		r = append(r,
-			nil,        // tags_id
-			timeUTC,    // created_at
-			timeUTC,    // created_date
+			nil,     // tags_id
+			timeUTC, // created_at
+			timeUTC, // created_date
 			TimeUTCStr) // time
 		if p.conf.InTableTag {
 			r = append(r, tags[0]) // tags[0] = hostname
@@ -193,7 +199,6 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		p.csi.mutex.Unlock()
 	}
 
-	// Deal with tag ids for each data row
 	// Prepare column names
 	cols := make([]string, 0, colLen)
 	cols = append(cols, "tags_id", "created_at", "created_date", "time")
@@ -229,7 +234,6 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		// Insert id of the tag (tags.id) for this host into tags_id position of the dataRows record
 		// refers to
 		// nil,		// tags_id
-
 		dataRows[i][tagsIdPosition] = p.csi.m[tagKey]
 	}
 	p.csi.mutex.RUnlock()
@@ -241,12 +245,7 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		args = append(args, r...)
 	}
 
-	tx := p.db.MustBegin()
-	_, err := tx.Exec(sql, args...)
-	if err != nil {
-		panic(err)
-	}
-	err = tx.Commit()
+	_, err = p.db.Exec(sql, args...)
 	if err != nil {
 		panic(err)
 	}
