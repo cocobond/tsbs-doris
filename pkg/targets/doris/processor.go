@@ -133,19 +133,16 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		if err != nil {
 			panic(err)
 		}
-		//timeUTC := time.Unix(0, timestampNano)
-		//TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
+		timeUTC := time.Unix(0, timestampNano)
+		TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
 
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
-		// First columns in table are
-		// time
-		// tags_id - would be nil for now
-		// what is the position of the tags_id in the row - nil value
 		r = append(r,
-			nil,           // tags_id
-			timestampNano, // time
-		)
+			nil,        // tags_id
+			timeUTC,    // created_at
+			timeUTC,    // created_date
+			TimeUTCStr) // time
 		if p.conf.InTableTag {
 			r = append(r, tags[0]) // tags[0] = hostname
 		}
@@ -199,7 +196,7 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	// Deal with tag ids for each data row
 	// Prepare column names
 	cols := make([]string, 0, colLen)
-	cols = append(cols, "tags_id", "time")
+	cols = append(cols, "tags_id", "created_at", "created_date", "time")
 	if p.conf.InTableTag {
 		cols = append(cols, tableCols["tags"][0]) // hostname
 	}
@@ -223,18 +220,27 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		strings.Join(cols, ","),
 		strings.Join(placeholders, ","))
 
+	// Deal with tag ids for each data row
+	var tagsIdPosition = 0
+	p.csi.mutex.RLock()
+	for i := range dataRows {
+		// tagKey = hostname
+		tagKey := tagRows[i][0]
+		// Insert id of the tag (tags.id) for this host into tags_id position of the dataRows record
+		// refers to
+		// nil,		// tags_id
+
+		dataRows[i][tagsIdPosition] = p.csi.m[tagKey]
+	}
+	p.csi.mutex.RUnlock()
+
 	// 准备参数（需要展开所有行的数据）
 	args := make([]interface{}, 0, len(dataRows)*len(cols))
-	tagsId := 0
-	argsIndex := 0
+
 	for _, r := range dataRows {
-		tagsId++
 		args = append(args, r...)
-		args[argsIndex] = tagsId
-		argsIndex = argsIndex + len(r)
 	}
 
-	// 使用事务执行批量插入
 	tx := p.db.MustBegin()
 	_, err := tx.Exec(sql, args...)
 	if err != nil {
