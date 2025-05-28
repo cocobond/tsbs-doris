@@ -136,9 +136,10 @@ func createMetricsTable(conf *DorisConfig, db *sqlx.DB, tableName string, fieldC
 				tags_id BIGINT,
 				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     			created_date DATE DEFAULT CURRENT_DATE,
-				time STRING,
+				time BIGINT,
 				%s,
-				additional_tags String  DEFAULT ''
+				additional_tags String  DEFAULT '',
+			    INDEX idx_created_at(created_at) USING INVERTED
 			 ) DUPLICATE KEY(%s)
 			DISTRIBUTED BY HASH(%s) BUCKETS 10 PROPERTIES('replication_num' = '1')
 			`,
@@ -177,7 +178,8 @@ func generateTagsTableQuery(tagNames, tagTypes []string) string {
 			created_date DATE DEFAULT CURRENT_DATE,
     		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			%s,
-			INDEX idx_hostname(hostname) USING INVERTED
+			INDEX idx_hostname(hostname) USING INVERTED,
+			INDEX idx_created_at(created_at) USING INVERTED
 			)
 			DUPLICATE KEY(%s)
 			DISTRIBUTED BY HASH(tags_id) BUCKETS 10 

@@ -174,7 +174,7 @@ func (d *Devops) GroupByTimeAndPrimaryTag(qi query.Query, numMetrics int) {
 		strings.Join(selectClauses, ", "),              // cpu_avg SELECT %s
 		interval.Start().Format(dorisTimeStringFormat), // cpu_avg time >= '%s'
 		interval.End().Format(dorisTimeStringFormat),   // cpu_avg time < '%s'
-		joinClause,                                     // JOIN clause
+		joinClause,    // JOIN clause
 		hostnameField) // ORDER BY %s
 
 	humanLabel := devops.GetDoubleGroupByLabel("Doris", numMetrics)
@@ -272,12 +272,12 @@ func (d *Devops) LastPointPerHost(qi query.Query) {
 				INNER JOIN (
 					SELECT 
 						tags_id, 
-						MAX(created_at) AS max_created_at
+						MAX(time) AS max_time
 					FROM 
 						cpu
 					GROUP BY 
 						tags_id
-				) latest ON cpu.tags_id = latest.tags_id AND cpu.created_at = latest.max_created_at
+				) AS latest ON cpu.tags_id = latest.tags_id AND cpu.time = latest.max_time
 			) c
 			INNER JOIN tags t ON c.tags_id = t.tags_id
 			ORDER BY 

@@ -133,24 +133,21 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		// 	58,
 		// )
 
-		// Build string TimeStamp as '2006-01-02 15:04:05.999999 -0700'
-		// convert time from 1451606400000000000 (int64 UNIX TIMESTAMP with nanoseconds)
 		timestampNano, err := strconv.ParseInt(metrics[0], 10, 64)
 		if err != nil {
 			panic(err)
 		}
-		// Cuz doris highest time accuracy is microSec
 		timeUTC := time.Unix(0, timestampNano)
+		// Doris default BEIJING timezone and unable to modify
 		timeUTC = timeUTC.Add(-8 * time.Hour)
-		TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
 
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		r = append(r,
-			nil,        // tags_id
-			timeUTC,    // created_at
-			timeUTC,    // created_date
-			TimeUTCStr) // time
+			nil,           // tags_id
+			timeUTC,       // created_at
+			timeUTC,       // created_date
+			timestampNano) // time
 		if p.conf.InTableTag {
 			r = append(r, tags[0]) // tags[0] = hostname
 		}

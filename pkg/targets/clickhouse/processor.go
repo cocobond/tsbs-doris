@@ -145,7 +145,7 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 			panic(err)
 		}
 		timeUTC := time.Unix(0, timestampNano)
-		TimeUTCStr := timeUTC.Format("2006-01-02 15:04:05.999999 -0700")
+		TimeUTCStr := timeUTC.UTC().Format("2006-01-02 15:04:05.999999 -0700")
 
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
