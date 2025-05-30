@@ -43,10 +43,10 @@ func getConnectString(conf *DorisConfig, db bool) string {
 	// connectString: tcp://127.0.0.1:9000?debug=true
 	// Doris ex.:
 	if db {
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&time_zone=UTC", conf.User, conf.Password, conf.Host, conf.Port, conf.DbName)
+		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=UTC", conf.User, conf.Password, conf.Host, conf.Port, conf.DbName)
 	}
 
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true&time_zone=UTC", conf.User, conf.Password, conf.Host, conf.Port)
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=UTC", conf.User, conf.Password, conf.Host, conf.Port)
 }
 
 // Point is a single row of data keyed by which table it belongs

@@ -138,9 +138,6 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 			panic(err)
 		}
 		timeUTC := time.Unix(0, timestampNano)
-		// Doris default BEIJING timezone and unable to modify
-		timeUTC = timeUTC.Add(-8 * time.Hour)
-
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		r = append(r,

@@ -9,7 +9,6 @@ import (
 	"github.com/timescale/tsbs/pkg/query"
 )
 
-// TODO: Remove the need for this by continuing to bubble up errors
 func panicIfErr(err error) {
 	if err != nil {
 		panic(err.Error())

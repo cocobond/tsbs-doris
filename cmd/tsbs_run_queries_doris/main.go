@@ -82,7 +82,7 @@ func getConnectString(workerNumber int) string {
 	// Round-robin the host/worker assignment by assigning a host based on workerNumber % totalNumberOfHosts
 	host := hostsList[workerNumber%len(hostsList)]
 
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&time_zone=UTC", user, password, host, port, runner.DatabaseName())
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=UTC", user, password, host, port, runner.DatabaseName())
 }
 
 // prettyPrintResponse prints a Query and its response in JSON format with two
@@ -138,7 +138,7 @@ func (p *processor) Init(workerNumber int) {
 	}
 }
 
-// query.Processor interface implementation
+// ProcessQuery query.Processor interface implementation
 func (p *processor) ProcessQuery(q query.Query, isWarm bool) ([]*query.Stat, error) {
 	// No need to run again for EXPLAIN
 	if isWarm && p.opts.showExplain {
