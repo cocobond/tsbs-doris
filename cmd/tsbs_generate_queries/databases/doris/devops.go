@@ -202,7 +202,7 @@ func (d *Devops) GroupByOrderByLimit(qi query.Query) {
 			WHERE 
 			   created_at < '%s'
 			GROUP BY minute
-			ORDER BY minute
+			ORDER BY minute DESC
 			LIMIT 5;
 			`,
 		interval.End().Format(dorisTimeStringFormat))
