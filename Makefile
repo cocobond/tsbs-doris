@@ -10,7 +10,12 @@ GOFMT=$(GOCMD) fmt
 
 .PHONY: all generators loaders runners lint fmt checkfmt
 
-all: generators loaders runners
+all: generators loaders runners install-scripts
+
+install-scripts:
+	@echo 'Installing doris-bench scripts...'; \
+	cp ./scripts/doris_bench/*.sh bin/; \
+	chmod +x bin/*.sh
 
 generators: tsbs_generate_data \
 			tsbs_generate_queries
