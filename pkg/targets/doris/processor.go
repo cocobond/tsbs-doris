@@ -1,14 +1,39 @@
 package doris
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	"github.com/timescale/tsbs/pkg/targets"
+	"io"
+	"io/ioutil"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+type StreamLoadResp struct {
+	TxnID                  int    `json:"TxnId"`
+	Label                  string `json:"Label"`
+	Status                 string `json:"Status"`
+	Message                string `json:"Message"`
+	NumberTotalRows        int    `json:"NumberTotalRows"`
+	NumberLoadedRows       int    `json:"NumberLoadedRows"`
+	NumberFilteredRows     int    `json:"NumberFilteredRows"`
+	NumberUnselectedRows   int    `json:"NumberUnselectedRows"`
+	LoadBytes              int    `json:"LoadBytes"`
+	LoadTimeMs             int    `json:"LoadTimeMs"`
+	BeginTxnTimeMs         int    `json:"BeginTxnTimeMs"`
+	StreamLoadPutTimeMs    int    `json:"StreamLoadPutTimeMs"`
+	ReadDataTimeMs         int    `json:"ReadDataTimeMs"`
+	WriteDataTimeMs        int    `json:"WriteDataTimeMs"`
+	CommitAndPublishTimeMs int    `json:"CommitAndPublishTimeMs"`
+	ErrorURL               string `json:"ErrorURL"`
+}
 
 // load.Processor interface implementation
 type processor struct {
@@ -138,11 +163,12 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 			panic(err)
 		}
 		timeUTC := time.Unix(0, timestampNano)
+		tmpCreatedAt := timeUTC.UTC().Format("2006-01-02 15:04:05")
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		r = append(r,
 			nil,           // tags_id
-			timeUTC,       // created_at
+			tmpCreatedAt,  // created_at
 			timeUTC,       // created_date
 			timestampNano) // time
 		if p.conf.InTableTag {
@@ -211,15 +237,15 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	}
 
 	// 构建完整的 INSERT 语句
-	sql := fmt.Sprintf(`
-    INSERT INTO %s (
-        %s
-    ) VALUES 
-        %s
-    `,
-		tableName,
-		strings.Join(cols, ","),
-		strings.Join(placeholders, ","))
+	//sql := fmt.Sprintf(`
+	//INSERT INTO %s (
+	//    %s
+	//) VALUES
+	//    %s
+	//`,
+	//	tableName,
+	//	strings.Join(cols, ","),
+	//	strings.Join(placeholders, ","))
 
 	// Deal with tag ids for each data row
 	var tagsIdPosition = 0
@@ -235,18 +261,109 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	p.csi.mutex.RUnlock()
 
 	// 准备参数（需要展开所有行的数据）
-	args := make([]interface{}, 0, len(dataRows)*len(cols))
+	//args := make([]interface{}, 0, len(dataRows)*len(cols))
 
-	for _, r := range dataRows {
-		args = append(args, r...)
+	bs := make([]byte, 0, len(dataRows)*len(cols))
+
+	//1,2024-01-01 00:00:00,2024-01-01,1704067200000000000,58,2,24,61,22,63,6,44,80,38
+	//2,2024-01-01 00:00:00,2024-01-01,1704067200000000000,84,11,53,87,29,20,54,77,53,74
+	for j, r := range dataRows {
+		for i, row := range r {
+			bs = append(bs, []byte(fmt.Sprintf("%v", row))...)
+			if i != len(r)-1 {
+				bs = append(bs, ',')
+			}
+		}
+		if j != len(dataRows)-1 {
+			bs = append(bs, '\n')
+		}
 	}
 
-	_, err = p.db.Exec(sql, args...)
+	if len(dataRows) == 0 {
+		return ret
+	}
+	sendRequest(bytes.NewReader(bs), p.conf, tableName, cols)
+	//_, err = p.db.Exec(sql, args...)
 	if err != nil {
 		panic(err)
 	}
 
 	return ret
+}
+
+//	response=$(curl --silent --location-trusted -u root:"" \
+//	       -H "Expect: 100-continue" \
+//	       -H "column_separator: ," \
+//	       -H "columns: tags_id,hostname,region,datacenter,rack,os,arch,team,service,service_version,service_environment" \
+//	       -T "$doris_tags_file" \
+//	       ${DORIS_URL}/api/benchmark/tags/_stream_load)
+//	   echo "Tags 加载结果: $response"
+func sendRequest(reader io.Reader, conf *DorisConfig, tableName string, cols []string) {
+	url := fmt.Sprintf("http://%s:%d/api/%s/%s/_stream_load", conf.Host, 8030, conf.DbName, tableName)
+	for i := 0; i < 3; i++ {
+		// 如果是重定向响应，很可能是会被调用一次 close，避免多次 close
+		req, err := http.NewRequest("PUT", url, reader)
+		if err != nil {
+			panic(err)
+		}
+
+		// set auth
+		req.Header.Set("Content-Type", "application/json")
+		result := "root" + ":" + ""
+		req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(result))))
+		req.Header.Set("Expect", "100-continue")
+		// UTC Timezone
+		req.Header.Set("timezone", "Africa/Abidjan")
+		req.Header.Set("group_commit", "async_mode")
+		req.Header.Set("column_separator", ",")
+		req.Header.Set("columns", strings.Join(cols, ","))
+
+		// create client
+		client := &http.Client{
+			Timeout: time.Duration(36000) * time.Second,
+		}
+
+		// send request
+		resp, err := client.Do(req)
+		if err != nil {
+			panic(err)
+		}
+
+		// read response
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
+		}
+		// check response
+		if resp.StatusCode != 200 {
+			// print response headers
+			if resp.StatusCode == 307 {
+				url = resp.Header.Get("Location")
+				//.Printf("redirect to %s \n", url)
+				resp.Body.Close()
+				continue
+			}
+			//log.Printf("response headers: %v \n", resp.Header)
+			//log.Fatalf("response code is not 200, code: %d, response: %s \n", resp.StatusCode, string(body))
+		}
+
+		// parse response
+		var respMsg StreamLoadResp
+		err = json.Unmarshal(body, &respMsg)
+		if err != nil {
+			panic(err)
+		}
+
+		if respMsg.Status != "Success" {
+			//fmt.Println(string(body))
+			if respMsg.Status != "Publish Timeout" {
+				panic(respMsg.Status)
+			}
+		}
+		resp.Body.Close()
+		return
+	}
+	panic("redirect too much")
 }
 
 // insertTags fills tags table with values
