@@ -93,7 +93,7 @@ func (d *Devops) MaxAllCPU(qi query.Query, nHosts int, duration time.Duration) {
 
 	sql := fmt.Sprintf(`
         SELECT
-		  DATE_TRUNC('HOUR', created_at) AS hour,
+		  HOUR_FLOOR(created_at) AS hour,
 		  %s
 		FROM cpu
 		WHERE
@@ -152,7 +152,7 @@ func (d *Devops) GroupByTimeAndPrimaryTag(qi query.Query, numMetrics int) {
 		FROM
 		(
 			SELECT
-				DATE_TRUNC('HOUR', created_at) AS hour,
+				HOUR_FLOOR(created_at) AS hour,
 				tags_id,
 				%s
 			FROM cpu
@@ -196,7 +196,7 @@ func (d *Devops) GroupByOrderByLimit(qi query.Query) {
 
 	sql := fmt.Sprintf(`
 			SELECT 
-			  DATE_TRUNC('MINUTE', CAST(created_at AS DATETIME)) AS minute,
+			  MINUTE_FLOOR(created_at) AS minute,
 			  MAX(usage_user) AS max_usage_user
 			FROM cpu
 			WHERE 
@@ -315,7 +315,7 @@ func (d *Devops) GroupByTime(qi query.Query, nHosts, numMetrics int, timeRange t
 
 	sql := fmt.Sprintf(`
 			SELECT
-			  DATE_TRUNC('MINUTE', CAST(created_at AS DATETIME))  AS minute,
+			  MINUTE_FLOOR(created_at)  AS minute,
 			  %s
 			FROM cpu
 			WHERE
