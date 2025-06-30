@@ -81,7 +81,7 @@ type CommonBenchmarkRunner struct {
 	sleepRegulator insertstrategy.SleepRegulator
 }
 
-// GetBenchmarkRunnerWithBatchSize returns the singleton CommonBenchmarkRunner for use in a benchmark program
+// GetBenchmarkRunner GetBenchmarkRunnerWithBatchSize returns the singleton CommonBenchmarkRunner for use in a benchmark program
 // with specified batch size.
 func GetBenchmarkRunner(c BenchmarkRunnerConfig) BenchmarkRunner {
 	loader := CommonBenchmarkRunner{}

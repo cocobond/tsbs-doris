@@ -167,9 +167,9 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 		// use nil at 2-nd position as placeholder for tagKey
 		r := make([]interface{}, 0, colLen)
 		r = append(r,
-			nil,           // tags_id
-			tmpCreatedAt,  // created_at
-			timeUTC,       // created_date
+			nil,          // tags_id
+			tmpCreatedAt, // created_at
+			timeUTC,      // created_date
 			timestampNano) // time
 		if p.conf.InTableTag {
 			r = append(r, tags[0]) // tags[0] = hostname
@@ -213,7 +213,7 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	if len(newTags) > 0 {
 		// We have new tags to insert
 		p.csi.mutex.Lock()
-		hostnameToTags := insertTags(p.conf, p.db, len(p.csi.m), newTags, true)
+		hostnameToTags := insertTags(p.db, len(p.csi.m), newTags, true)
 		// Insert new tags into map as well
 		for hostName, tagsId := range hostnameToTags {
 			p.csi.m[hostName] = tagsId
@@ -235,17 +235,6 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 	for range dataRows {
 		placeholders = append(placeholders, rowPlaceholder)
 	}
-
-	// 构建完整的 INSERT 语句
-	//sql := fmt.Sprintf(`
-	//INSERT INTO %s (
-	//    %s
-	//) VALUES
-	//    %s
-	//`,
-	//	tableName,
-	//	strings.Join(cols, ","),
-	//	strings.Join(placeholders, ","))
 
 	// Deal with tag ids for each data row
 	var tagsIdPosition = 0
@@ -299,7 +288,7 @@ func (p *processor) processCSI(tableName string, rows []*insertData) uint64 {
 //	       ${DORIS_URL}/api/benchmark/tags/_stream_load)
 //	   echo "Tags 加载结果: $response"
 func sendRequest(reader io.Reader, conf *DorisConfig, tableName string, cols []string) {
-	url := fmt.Sprintf("http://%s:%d/api/%s/%s/_stream_load", conf.Host, 8030, conf.DbName, tableName)
+	url := fmt.Sprintf("http://%s:%d/api/%s/%s/_stream_load", conf.Host, conf.FeHttpPort, conf.DbName, tableName)
 	for i := 0; i < 3; i++ {
 		// 如果是重定向响应，很可能是会被调用一次 close，避免多次 close
 		req, err := http.NewRequest("PUT", url, reader)
@@ -367,7 +356,7 @@ func sendRequest(reader io.Reader, conf *DorisConfig, tableName string, cols []s
 }
 
 // insertTags fills tags table with values
-func insertTags(conf *DorisConfig, db *sqlx.DB, startID int, rows [][]string, returnResults bool) map[string]int64 {
+func insertTags(db *sqlx.DB, startID int, rows [][]string, returnResults bool) map[string]int64 {
 	// Map hostname to tags_id
 	ret := make(map[string]int64)
 

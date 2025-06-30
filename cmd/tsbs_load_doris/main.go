@@ -42,6 +42,7 @@ func init() {
 	conf = &doris.DorisConfig{
 		Host:       viper.GetString("host"),
 		Port:       viper.GetInt("port"),
+		FeHttpPort: viper.GetInt("fe-http-port"),
 		User:       viper.GetString("user"),
 		Password:   viper.GetString("password"),
 		LogBatches: viper.GetBool("log-batches"),

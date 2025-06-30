@@ -13,10 +13,11 @@ import (
 const dbType = "mysql"
 
 type DorisConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
+	Host       string
+	Port       int
+	FeHttpPort int
+	User       string
+	Password   string
 
 	LogBatches bool
 	InTableTag bool
@@ -80,7 +81,7 @@ func (ta *tableArr) Append(item data.LoadedPoint) {
 // scan.BatchFactory interface implementation
 type factory struct{}
 
-// scan.BatchFactory interface implementation
+// New scan.BatchFactory interface implementation
 func (f *factory) New() targets.Batch {
 	return &tableArr{
 		m:   map[string][]*insertData{},
@@ -124,12 +125,12 @@ func (b *benchmark) GetPointIndexer(maxPartitions uint) targets.PointIndexer {
 	return &targets.ConstantIndexer{}
 }
 
-// loader.Benchmark interface implementation
+// GetProcessor loader.Benchmark interface implementation
 func (b *benchmark) GetProcessor() targets.Processor {
 	return &processor{conf: b.conf}
 }
 
-// loader.Benchmark interface implementation
+// GetDBCreator loader.Benchmark interface implementation
 func (b *benchmark) GetDBCreator() targets.DBCreator {
 	return &dbCreator{ds: b.GetDataSource(), config: b.conf}
 }
